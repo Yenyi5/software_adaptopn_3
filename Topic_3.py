@@ -16,6 +16,7 @@ Python version: 3.11.0
 # pip install centerline --> in terminal
 # pip install opencv-python --> in terminal
 # pip install plantcv jupyterlab ipympl --> in terminal
+# pip install fil_finder --> in terminal
 
 
 '''
@@ -33,6 +34,7 @@ import skimage as ski
 from plantcv import plantcv as pcv
 from scipy.ndimage import rotate, gaussian_filter
 from scipy.interpolate import splrep, splev, splprep
+import cv2
 
 
 '''
@@ -70,7 +72,26 @@ def skeletonize_raster(raster):
     
     Returns:    skeletonized raster
     '''
-    return ski.morphology.skeletonize(raster)
+    return ski.morphology.skeletonize(raster, method='lee') # lee helps with better pruning but i don't know why
+
+
+# function to prune the skeletons
+def prune_skeleton(skeleton, size=200):
+    '''
+    Prunes a skeleton to remove small branches.
+    
+    Parameters: skeleton --> skeleton to prune
+                size --> size threshold for pruning
+    
+    Returns:    pruned skeleton
+    '''
+    # convert the skeleton to uint8 format for pruning
+    skeleton_uint8 = (skeleton * 255).astype(np.uint8)
+    
+    # prune the skeleton using plantcv
+    pruned_skeleton, segmented_img, segment_objects = pcv.morphology.prune(skel_img=skeleton_uint8, size=size)
+    
+    return pruned_skeleton
     
 
 # function to segment skeletons using plantcv
@@ -100,7 +121,7 @@ def new_segments_of_skeletons(skel_img, mask_img):
 load data
 '''
 # path to water shapefile from osm dataset Saxony
-water_path = "C:\\Software_Adaption_Material\\water_osm\\water_osm\\gis_osm_water_a_free_1.shp" # polygons
+water_path = "C:\\Users\\Administrator\\OneDrive\\TU Dresden\\GIT Master\\2. Semester\\Cartographic Software Adaptation\\Abgabe\\water_osm\\gis_osm_water_a_free_1.shp" # polygons
 
 # load dataframes --> chosen water bc the data is already polygons
 water = gpd.read_file(water_path)
@@ -148,10 +169,10 @@ rasterize the polygons
 # source: mainly used ChatGPT to help
 '''
 # rasterize the polygons
-easy_raster = rasterize_polygon(easy, out_shape=(1000, 1000))
-medium_raster = rasterize_polygon(medium, out_shape=(1000, 1000))
-hard_raster = rasterize_polygon(hard, out_shape=(1000, 1000))
-super_hard_raster = rasterize_polygon(super_hard, out_shape=(1000, 1000))
+easy_raster = rasterize_polygon(easy, out_shape=(500, 500)) # or 1000
+medium_raster = rasterize_polygon(medium, out_shape=(500, 500))
+hard_raster = rasterize_polygon(hard, out_shape=(500, 500))
+super_hard_raster = rasterize_polygon(super_hard, out_shape=(500, 500))
 
 # plot the rasterized polygons together in a 2x2 format
 fig, axes = plt.subplots(2, 2, figsize=(10, 10))
@@ -192,14 +213,151 @@ plt.show()
 
 
 '''
+check for cycles in the skeletons
+source: https://plantcv.readthedocs.io/en/stable/check_cycles/
+'''
+
+# make a function to check for cycles in all skeletons
+def check_cycles_in_skeleton(skeleton):
+    '''
+    Checks for cycles in a given skeleton.
+    
+    Parameters: skeleton --> skeleton to check for cycles
+    
+    Returns:    cycle image with cycles highlighted
+    '''
+    # convert the skeleton to uint8 format for cycle checking
+    skeleton_uint8 = (skeleton * 255).astype(np.uint8)
+    
+    # check for cycles using plantcv
+    cycle_img = pcv.morphology.check_cycles(skel_img=skeleton_uint8)
+    
+    return cycle_img
+
+# check for cycles in all skeletons
+easy_cycle_img = check_cycles_in_skeleton(easy_skeleton)
+medium_cycle_img = check_cycles_in_skeleton(medium_skeleton)
+hard_cycle_img = check_cycles_in_skeleton(hard_skeleton)
+super_hard_cycle_img = check_cycles_in_skeleton(super_hard_skeleton)
+# plot the cycle images together in a 2x2 format
+fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+axes[0, 0].imshow(easy_cycle_img, cmap='gray')
+axes[0, 0].set_title("Cycle Image of Easy Skeleton")
+axes[0, 1].imshow(medium_cycle_img, cmap='gray')
+axes[0, 1].set_title("Cycle Image of Medium Skeleton")
+axes[1, 0].imshow(hard_cycle_img, cmap='gray')
+axes[1, 0].set_title("Cycle Image of Hard Skeleton")
+axes[1, 1].imshow(super_hard_cycle_img, cmap='gray')
+axes[1, 1].set_title("Cycle Image of Super Hard Skeleton")
+plt.tight_layout()
+plt.show()
+
+
+
+
+# make a function to remove the cycles from the skeletons
+def remove_cycles_from_skeleton(skeleton):
+    '''
+    Removes cycles from a given skeleton.
+    
+    Parameters: skeleton --> skeleton to remove cycles from
+    
+    Returns:    skeleton with cycles removed
+    '''
+    skel_img_uint8 = (skeleton * 255).astype(np.uint8)
+    # check for cycles
+    cycle_img = pcv.morphology.check_cycles(skel_img=skel_img_uint8, label = "cycles")
+    num_cycles = pcv.outputs.observations['cycles']['num_cycles']['value']
+    #print("Number of cycles:", num_cycles)
+
+    # if no cycles are found, return the original skeleton
+    if num_cycles == 0:
+        print("No cycles found")
+        return skel_img_uint8
+    # if cycles are found, remove them from the skeleton
+    else:
+        print("Number of cycles:", num_cycles)
+
+        # label and plot the cycles
+
+        
+
+        # ask the user which cycles to remove based on cycle labels
+    
+
+        # Create a mask for all non-white pixels -> because check_cycles makes all cycles another color!
+        non_white_mask = np.any(cycle_img != 255, axis=2)
+        # Remove cycles from skeleton
+        skeleton_no_cycles = skel_img_uint8.copy()
+        skeleton_no_cycles[non_white_mask] = 0
+        return skeleton_no_cycles
+
+    
+
+
+# remove cycles from all skeletons
+easy_skeleton_no_cycles = remove_cycles_from_skeleton(easy_skeleton)
+medium_skeleton_no_cycles = remove_cycles_from_skeleton(medium_skeleton)
+hard_skeleton_no_cycles = remove_cycles_from_skeleton(hard_skeleton)
+super_hard_skeleton_no_cycles = remove_cycles_from_skeleton(super_hard_skeleton)
+
+# plot the skeletons with cycles removed together in a 2x2 format
+fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+axes[0, 0].imshow(easy_skeleton_no_cycles, cmap='gray')
+axes[0, 0].set_title("Easy Skeleton without Cycles")
+axes[0, 1].imshow(medium_skeleton_no_cycles, cmap='gray')
+axes[0, 1].set_title("Medium Skeleton without Cycles")
+axes[1, 0].imshow(hard_skeleton_no_cycles, cmap='gray')
+axes[1, 0].set_title("Hard Skeleton without Cycles")
+axes[1, 1].imshow(super_hard_skeleton_no_cycles, cmap='gray')
+axes[1, 1].set_title("Super Hard Skeleton without Cycles")
+plt.tight_layout()
+plt.show()
+
+
+'''
+prune skeletons to remove small branches
+source: https://plantcv.readthedocs.io/en/stable/prune/
+'''
+# prune the skeletons
+pruned_easy_skeleton = prune_skeleton(easy_skeleton)
+pruned_medium_skeleton = prune_skeleton(medium_skeleton)
+pruned_hard_skeleton = prune_skeleton(hard_skeleton)
+pruned_super_hard_skeleton = prune_skeleton(super_hard_skeleton)
+
+# plot the pruned skeletons together in a 2x2 format
+fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+axes[0, 0].imshow(pruned_easy_skeleton, cmap='gray')
+axes[0, 0].set_title("Pruned Easy Skeleton")
+axes[0, 1].imshow(pruned_medium_skeleton, cmap='gray')
+axes[0, 1].set_title("Pruned Medium Skeleton")
+axes[1, 0].imshow(pruned_hard_skeleton, cmap='gray')
+axes[1, 0].set_title("Pruned Hard Skeleton")
+axes[1, 1].imshow(pruned_super_hard_skeleton, cmap='gray')
+axes[1, 1].set_title("Pruned Super Hard Skeleton")
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
+'''
 segmentation of the skeletons using plantcv
 # source: https://plantcv.readthedocs.io/en/stable/segment_skeleton/
 '''
 # segment the skeletons using the library PlantCV
-easy_segmented_img, easy_obj = new_segments_of_skeletons(easy_skeleton, easy_raster)
-medium_segmented_img, medium_obj = new_segments_of_skeletons(medium_skeleton, medium_raster)
-hard_segmented_img, hard_obj = new_segments_of_skeletons(hard_skeleton, hard_raster)
-super_hard_segmented_img, super_hard_obj = new_segments_of_skeletons(super_hard_skeleton, super_hard_raster)
+easy_segmented_img, easy_obj = new_segments_of_skeletons(pruned_easy_skeleton, easy_raster)
+medium_segmented_img, medium_obj = new_segments_of_skeletons(pruned_medium_skeleton, medium_raster)
+hard_segmented_img, hard_obj = new_segments_of_skeletons(pruned_hard_skeleton, hard_raster)
+super_hard_segmented_img, super_hard_obj = new_segments_of_skeletons(pruned_super_hard_skeleton, super_hard_raster)
 
 # plot the segmented images together in a 2x2 format
 fig, axes = plt.subplots(2, 2, figsize=(10, 10))
